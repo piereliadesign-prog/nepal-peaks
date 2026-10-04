@@ -1,0 +1,2263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nepal’s 8000m Peaks Visualized</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!---- Font --->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!---- Style (CSS) --->
+    <style>
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: #FEFEFE;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .visualization {
+        width: 100%;
+        max-width: 1800px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+
+      #viz {
+        display: block;
+        width: 100%;
+        height: auto;
+        /* The viewBox includes the mountain bases beyond the original canvas. */
+        aspect-ratio: 2 / 1;
+        overflow: hidden;
+      }
+
+      .desktop-message {
+        display: none;
+        min-height: 100vh;
+        min-height: 100svh;
+        padding: 32px 24px;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .desktop-message-content { max-width: 380px; }
+      .desktop-message .mountain-mark {
+        color: #2E5EAA;
+        font-size: 56px;
+        line-height: 1;
+        margin-bottom: 24px;
+      }
+      .desktop-message h1 {
+        color: #2E5EAA;
+        font-size: clamp(26px, 7vw, 36px);
+        line-height: 1.15;
+        margin: 0 0 28px;
+      }
+      .desktop-message h2 {
+        color: #1F3F78;
+        font-size: 22px;
+        margin: 0 0 12px;
+      }
+      .desktop-message p {
+        color: rgba(0, 0, 0, 0.65);
+        font-size: 16px;
+        line-height: 1.6;
+        margin: 0;
+      }
+
+      @media (max-width: 899px) {
+        .visualization { display: none; }
+        .desktop-message { display: flex; }
+      }
+
+      .popup-nav { cursor: pointer; outline: none; }
+      .popup-nav circle {
+        fill: #FEFEFE;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        transition: fill 180ms ease, stroke-width 180ms ease;
+      }
+      .popup-nav:hover circle, .popup-nav:focus-visible circle {
+        fill: currentColor;
+        stroke-width: 2.5;
+      }
+      .popup-nav path {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        pointer-events: none;
+        transition: stroke 180ms ease;
+      }
+      .popup-nav:hover path, .popup-nav:focus-visible path { stroke: #FEFEFE; }
+
+      .popup-close {
+        transform-box: fill-box;
+        transform-origin: center;
+        transition: transform 160ms ease;
+      }
+      .popup-close:hover { transform: scale(1.15); }
+
+      /* 🖱️ Hover animation (smooth scale) */
+      .card path {
+        transition: transform 60ms ease;
+        transform-origin: center bottom;
+      }
+
+      /* 🏔️ Center Labels (Name + Height) */
+      .mountain-label text {
+        pointer-events: none;
+        text-anchor: middle;
+      }
+
+      .mountain-label .name {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 800;
+        font-size: 18px;
+      }
+
+      .mountain-label .height {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 14px;
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!---- Svg --->
+    <main class="visualization" aria-label="Nepal’s 8000m Peaks Visualized">
+      <!-- Keep D3's original coordinate system; scale the full composition with CSS. -->
+      <svg id="viz" width="1200" height="650"
+        viewBox="-150 -10 1500 750" preserveAspectRatio="xMidYMin meet"></svg>
+    </main>
+    <section class="desktop-message" aria-labelledby="desktop-message-title">
+      <div class="desktop-message-content">
+        <div class="mountain-mark" aria-hidden="true">△</div>
+        <h1 id="desktop-message-title">Nepal’s 8000m Peaks Visualized</h1>
+        <h2>Open on desktop</h2>
+        <p>This visualization is best explored on a larger screen. Please open it on a desktop or laptop, or widen your browser window.</p>
+      </div>
+    </section>
+
+    <!---- JavaScript (JS) --->
+    <script> 
+      // --------------------------------------
+      // 8000_peaks.csv DATA (Start)
+      // --------------------------------------
+
+      const desktopViewport = window.matchMedia("(min-width: 900px)");
+      let visualizationInitialized = false;
+
+      function initializeVisualization() {
+        // Measure SVG text only while the desktop visualization is visible.
+        if (!desktopViewport.matches || visualizationInitialized) return;
+        visualizationInitialized = true;
+
+      d3.dsv(";", "8000_peaks.csv").then((rawData) => {
+        if (!desktopViewport.matches) {
+          visualizationInitialized = false;
+          return;
+        }
+        const mountains = rawData.map((d) => ({
+          peak_id: d.peak_id,
+          name: d.peak_name,
+          height: +d.height_metres,
+          region: d.peak_country,
+          img: d.img,
+          number_of_expeditions: +d.number_of_expeditions,
+          first_ascent_year: +d.first_ascent_year,
+          first_ascent_country: d.first_ascent_country,
+          death_rate_per_summit: d.death_rate_per_summit,
+          first_ascent_text1: d.first_ascent_text1,
+          first_ascent_text2: d.first_ascent_text2,
+
+          //members
+          summit_attempts: +d.summit_attempts,
+          successful_summits: +d.successful_summits,
+          unsuccessful_attempts: +d.unsuccessful_attempts,
+          success_with_oxygen: +d.success_with_oxigen,
+          success_without_oxygen: d.success_without_oxigen,
+          male_successful_summits: +d.male_successful_summits,
+          female_successful_summits: +d.female_successful_summits,
+          deaths: +d.deaths,
+          deaths_per_summit: +d.deaths_per_summit,
+        }));
+
+        // Fixing the first ascent tie break for peaks with same year (for sorting purposes only)
+        const firstAscentTieBreak = {
+          Makalu: 1,
+          Kangchenjunga: 2,
+          Manaslu: 1,
+          Lhotse: 2,
+        };
+
+        // --------------------------------------
+        // Start of the Visualization Code
+        // --------------------------------------
+
+        const BackgroundColor = "#FEFEFE"; //Homepage Background Color
+        const svg = d3.select("#viz");
+        const width = +svg.attr("width");
+        const height = +svg.attr("height");
+        let cols = 4;
+        const layoutPadding = 60;
+        let mountainPadding = -10;
+
+        let innerWidth = width - layoutPadding * 2;
+        const innerHeight = height - layoutPadding * 2;
+
+        let cellW = innerWidth / cols;
+        const cellH = innerHeight / 2;
+
+        const maxHeight = d3.max(mountains, (d) => d.height);
+
+        //Updating layout based on the mode (Compare or Normal)
+        function updateLayout(isCompareMode) {
+          if (isCompareMode) {
+            cols = 8;
+            mountainPadding = 30;
+            innerWidth = width - layoutPadding * 2 - mountainPadding * 2;
+          } else {
+            cols = 4;
+            mountainPadding = -10;
+            innerWidth = width - layoutPadding * 2;
+          }
+
+          cellW = innerWidth / cols;
+
+          // width scaling
+          baseWMax = isCompareMode ? cellW * 2 : cellW * 2.3;
+
+          mountainG
+            .transition()
+            .duration(600)
+            .attr(
+              "transform",
+              `translate(${mountainPadding}, ${mountainPadding})`,
+            );
+
+          peakGroups.transition().duration(800).attr("transform", positionPeak);
+
+          // update triangle shapes
+          peakGroups
+            .select("path")
+            .transition()
+            .duration(800)
+            .attr("d", (d) => {
+              const s = d.height / maxHeight;
+              const baseW = baseWMax * s;
+              const triH = triHMax * s;
+              return `M ${-baseW / 2} 0 L ${baseW / 2} 0 L 0 ${-triH} Z`;
+            });
+        }
+
+        // Position each mountain in the grid
+        function positionPeak(d, i) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+
+          const yOffset = row === 0 ? topRowYOffset : bottomRowYOffset;
+          const xOffset = row === 0 ? topRowXOffset : bottomRowXOffset;
+
+          return `translate(${col * cellW + cellW / 2 + xOffset}, ${row * cellH + yOffset})`;
+        }
+
+        // 🏔️ Mountain size (base and height) 🏔️
+        let baseWMax = cellW * 2.3; // Triangle width at base (Changing based on the Mode)
+        const triHMax = cellH * 1.5; // Triangle height
+
+        // 🏔️ Mountain Position variables 🏔️
+        const topRowYOffset = 500;
+        const bottomRowYOffset = 400;
+        const topRowXOffset = 0; // left/right shift top row
+        const bottomRowXOffset = 30; // left/right shift bottom row
+
+        // 🏔️ Mountain Gradient 🏔️
+        const defs = svg.append("defs");
+
+        // Mountains Colors (Base)
+        const regionColors = {
+          NP: "#B11226", // Nepal (Red)
+          NP_CN: "#2E5EAA", // Nepal / China (Tibet blue)
+          NP_IN: "#B8860B", // Nepal / India (Mustard Yellow)
+        };
+
+        // Label Colors (Darker, more readable)
+        const regionTextColors = {
+          NP: "#7A0B18",
+          NP_CN: "#1F3F78",
+          NP_IN: "#7A5A00",
+        };
+
+        // Mountains Colors (Lighter)
+        const regionLightColors = {
+          NP: "#E57373", // light red
+          NP_CN: "#90CAF9", // light blue
+          NP_IN: "#FFE082", // light yellow
+        };
+
+        mountains.forEach((d) => {
+          const gradient = defs
+            .append("linearGradient")
+            .attr("id", `mountainGradient-${d.peak_id}`)
+            .attr("x1", "0%")
+            .attr("y1", "0%")
+            .attr("x2", "0%")
+            .attr("y2", "100%");
+
+          gradient
+            .append("stop")
+            .attr("offset", "0%")
+            .attr("stop-color", regionColors[d.region]);
+
+          gradient
+            .append("stop")
+            .attr("offset", "100%")
+            .attr("stop-color", BackgroundColor);
+        });
+
+        const g = svg
+          .append("g")
+          .attr("transform", `translate(${layoutPadding}, ${layoutPadding})`);
+
+        // ===============================
+        // BIG POPUP START
+        // ===============================
+
+        let bigPopupOpen = false;
+        let activePeakId = null;
+
+        const BIG_W = 1100;
+        const BIG_H = 600;
+
+        // -------------------------------
+        // Popup Container
+        // -------------------------------
+
+        const bigPopup = svg
+          .append("g")
+          .attr("class", "big-popup")
+          .attr(
+            "transform",
+            `translate(${width / 2 - BIG_W / 2}, ${height / 2 - BIG_H / 2})`,
+          )
+          .attr("opacity", 0)
+          .style("pointer-events", "none");
+
+        // -------------------------------
+        // Shadow
+        // -------------------------------
+
+        const shadow = defs
+          .append("filter")
+          .attr("id", "bigShadow")
+          .attr("x", "-90%")
+          .attr("y", "-90%")
+          .attr("width", "200%")
+          .attr("height", "200%");
+
+        shadow
+          .append("feDropShadow")
+          .attr("dx", 0)
+          .attr("dy", 6)
+          .attr("stdDeviation", 18)
+          .attr("flood-color", "rgba(0,0,0,0.35)");
+
+        // -------------------------------
+        // Background
+        // -------------------------------
+
+        bigPopup
+          .append("rect")
+          .attr("width", BIG_W)
+          .attr("height", BIG_H)
+          .attr("rx", 18)
+          .attr("fill", "#FEFEFE")
+          .attr("filter", "url(#bigShadow)");
+
+        // -------------------------------
+        // TITLE
+        // -------------------------------
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-title")
+          .attr("x", 28)
+          .attr("y", 55)
+          .style("font-size", "36px")
+          .style("font-weight", 700);
+
+        // -------------------------------
+        // First ascent
+        // -------------------------------
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-first-ascent-1")
+          .attr("x", 28)
+          .attr("y", 98)
+          .attr("fill", "rgba(0,0,0,0.65)")
+          .style("font-size", "18px")
+          .style("font-weight", 500);
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-first-ascent-2")
+          .attr("x", 28)
+          .attr("y", 122)
+          .attr("fill", "rgba(0,0,0,0.65)")
+          .style("font-size", "18px")
+          .style("font-weight", 500);
+
+        // -------------------------------
+        // Header Image
+        // -------------------------------
+
+        const BIG_IMG_W = 500;
+        const BIG_IMG_H = 280;
+        const BIG_IMG_X = BIG_W - BIG_IMG_W - 70;
+        const BIG_IMG_Y = 18;
+
+        defs
+          .append("clipPath")
+          .attr("id", "bigPopupClip")
+          .attr("clipPathUnits", "userSpaceOnUse")
+          .append("rect")
+          .attr("x", BIG_IMG_X)
+          .attr("y", BIG_IMG_Y)
+          .attr("width", BIG_IMG_W)
+          .attr("height", BIG_IMG_H)
+          .attr("rx", 14);
+
+        bigPopup
+          .append("image")
+          .attr("class", "big-header-image")
+          .attr("x", BIG_IMG_X)
+          .attr("y", BIG_IMG_Y)
+          .attr("width", BIG_IMG_W)
+          .attr("height", BIG_IMG_H)
+          .attr("preserveAspectRatio", "xMidYMid slice")
+          .attr("clip-path", "url(#bigPopupClip)");
+
+        // -------------------------------
+        // STACKED BAR
+        // -------------------------------
+
+        const BAR_X = 28;
+        const BAR_Y = 540;
+        const BAR_W = 180; // thickness bar
+        const BAR_MAX_H = 385; // height bar
+
+        const barScale = d3.scaleLinear().range([0, BAR_MAX_H]);
+
+        const barG = bigPopup
+          .append("g")
+          .attr("transform", `translate(${BAR_X}, ${BAR_Y})`);
+
+        // bottom = unsuccessful
+        barG
+          .append("rect")
+          .attr("class", "bar-unsuccessful")
+          .attr("width", BAR_W)
+          .attr("fill", "#C9CED6");
+
+        // top = successful
+        barG
+          .append("rect")
+          .attr("class", "bar-successful")
+          .attr("width", BAR_W);
+
+        // -------------------------------
+        // Hover hint text
+        // -------------------------------
+
+        const hoverHint = bigPopup
+          .append("text")
+          .attr("class", "big-hover-hint")
+          .attr("text-anchor", "start")
+          .style("font-size", "14px")
+          .style("font-weight", 600);
+
+        // -------------------------------
+        // TEXT INSIDE BARS
+        // -------------------------------
+
+        barG
+          .append("text")
+          .attr("class", "label-unsuccessful")
+          .attr("text-anchor", "middle")
+          .attr("x", BAR_W / 2)
+          .attr("fill", "#FEFEFE")
+          .style("font-size", "15px")
+          .style("font-weight", 600);
+
+        barG
+          .append("text")
+          .attr("class", "label-successful")
+          .attr("text-anchor", "middle")
+          .attr("x", BAR_W / 2)
+          .attr("fill", "#FEFEFE")
+          .style("font-size", "15px")
+          .style("font-weight", 600);
+
+        // -------------------------------
+        // GENDER DONUT
+        // -------------------------------
+
+        const GENDER_CX = 930;
+        const GENDER_CY = 430;
+        const GENDER_R = 90;
+        const GENDER_INNER_R = 50;
+
+        const genderG = bigPopup
+          .append("g")
+          .attr("class", "gender-donut")
+          .attr("transform", `translate(${GENDER_CX}, ${GENDER_CY})`);
+
+        const genderPie = d3
+          .pie()
+          .value((d) => d.value)
+          .sort(null);
+
+        const genderArc = d3
+          .arc()
+          .innerRadius(GENDER_INNER_R)
+          .outerRadius(GENDER_R);
+
+        const genderColor = d3
+          .scaleOrdinal()
+          .domain(["male", "female"])
+          .range(["#2E5EAA", "#FF7AA2"]);
+
+        // -------------------------------
+        // SIDE % LABELS
+        // -------------------------------
+
+        const malePctLabel = bigPopup
+          .append("text")
+          .attr("class", "male-percent-label")
+          .attr("x", GENDER_CX + 4)
+          .attr("y", GENDER_CY - 65)
+          .attr("text-anchor", "start")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "#FEFEFE"); 
+
+        const femalePctLabel = bigPopup
+          .append("text")
+          .attr("class", "female-percent-label")
+          .attr("x", GENDER_CX - 4)
+          .attr("y", GENDER_CY - 65)
+          .attr("text-anchor", "end")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "#FEFEFE"); 
+
+        genderG
+          .selectAll("path")
+          .data(
+            genderPie([
+              { key: "male", value: 0 },
+              { key: "female", value: 0 },
+            ]),
+          )
+          .enter()
+          .append("path")
+          .attr(
+            "fill",
+            (d) =>
+              d.data.key === "male"
+                ? regionColors[d.region] // male 
+                : regionTextColors[d.region], // female 
+          )
+          .attr("d", genderArc)
+          .each(function (d) {
+            this._current = d;
+          });
+
+        // -------------------------------
+        // OXYGEN DONUT
+        // -------------------------------
+
+        const OXY_CX = 682;
+        const OXY_CY = 430;
+        const OXY_R = 90;
+        const OXY_INNER_R = 50;
+
+        const oxygenG = bigPopup
+          .append("g")
+          .attr("class", "oxygen-donut")
+          .attr("transform", `translate(${OXY_CX}, ${OXY_CY})`);
+
+        const oxygenPie = d3
+          .pie()
+          .value((d) => d.value)
+          .sort(null);
+
+        const oxygenArc = d3.arc().innerRadius(OXY_INNER_R).outerRadius(OXY_R);
+
+        const oxygenColor = d3
+          .scaleOrdinal()
+          .domain(["with", "without"])
+          .range([null, "#B0BEC5"]);
+
+        const oxyWithLabel = bigPopup
+          .append("text")
+          .attr("class", "oxygen-with-label")
+          .attr("x", OXY_CX + 4)
+          .attr("y", OXY_CY - 65)
+          .attr("text-anchor", "start")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "#FEFEFE");
+
+        const oxyWithoutLabel = bigPopup
+          .append("text")
+          .attr("class", "oxygen-without-label")
+          .attr("x", OXY_CX - 4)
+          .attr("y", OXY_CY - 65)
+          .attr("text-anchor", "end")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "#FEFEFE");
+
+        oxygenG
+          .selectAll("path")
+          .data(
+            oxygenPie([
+              { key: "with", value: 0 },
+              { key: "without", value: 0 },
+            ]),
+          )
+          .enter()
+          .append("path")
+          .attr("fill", "#B0BEC5") 
+          .attr("d", oxygenArc)
+          .each(function (d) {
+            this._current = d;
+          });
+
+        // -------------------------------
+        // DEATH RATIO CIRCLES
+        // -------------------------------
+
+        const DEATH_CX = 405;
+        const DEATH_CY = 415;
+
+        const DEATH_BASE_R = 130;
+        const DEATH_MAX_R = 130;
+
+        // -------------------------------
+        // DEATH RATIO CIRCLES (DRAW)
+        // -------------------------------
+
+        // group
+        const deathG = bigPopup
+          .append("g")
+          .attr("class", "death-ratio")
+          .attr("transform", `translate(${DEATH_CX}, ${DEATH_CY - 0})`);
+
+        // background circle (successful summits)
+        deathG
+          .append("circle")
+          .attr("class", "death-bg")
+          .attr("r", DEATH_BASE_R)
+          .attr("fill", "#E0E0E0")
+          .on("mouseenter", function () {
+            d3.select(this)
+              .attr("stroke", "rgba(0,0,0,0.65)")
+              .attr("stroke-width", 1.5);
+          })
+          .on("mouseleave", function () {
+            d3.select(this).attr("stroke", "none");
+          });
+
+        // Circle (deaths)
+        deathG
+          .append("circle")
+          .attr("class", "death-fg")
+          .attr("r", 0)
+          .attr("fill", "rgba(0,0,0,0.85)");
+
+        // -------------------------------
+        // Summit attempts
+        // -------------------------------
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-total-attempts")
+          .attr("x", 118)
+          .attr("y", BAR_Y + 32)
+          .attr("text-anchor", "middle")
+          .style("font-size", "15px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        // -------------------------------
+        // Death count labels
+        // -------------------------------
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-successful-total")
+          .attr("x", 400)
+          .attr("y", BAR_Y + 12)
+          .attr("text-anchor", "middle")
+          .style("font-size", "15px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-deaths-per-summit")
+          .attr("x", 400)
+          .attr("y", BAR_Y + 32)
+          .attr("text-anchor", "middle")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        bigPopup
+          .append("text")
+          .attr("class", "big-deaths-total")
+          .attr("x", 400)
+          .attr("y", BAR_Y - 20)
+          .attr("text-anchor", "middle")
+          .style("font-size", "15px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        bigPopup
+          .append("text")
+          .attr("class", "death-ratio-label")
+          .attr("x", DEATH_CX)
+          .attr("y", DEATH_CY + 4)
+          .attr("text-anchor", "middle")
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .attr("fill", "white");
+
+        // Successful summits center label (two-line)
+        bigPopup
+          .append("text")
+          .attr("class", "death-successful-label")
+          .attr("x", DEATH_CX)
+          .attr("y", DEATH_CY + 90) // slightly below center
+          .attr("text-anchor", "middle")
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .attr("fill", "white");
+
+        // -------------------------------
+        // Use of Oxigen / Successful summits
+        // -------------------------------
+
+        // Use of Oxigen
+        bigPopup
+          .append("text")
+          .attr("class", "big-oxygen-title")
+          .attr("x", 680)
+          .attr("y", 551)
+          .attr("text-anchor", "middle")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)")
+          .text("Use of Oxygen");
+
+        // Successful summits
+        bigPopup
+          .append("text")
+          .attr("class", "big-successful-right")
+          .attr("x", 680)
+          .attr("y", BAR_Y + 32)
+          .attr("text-anchor", "middle")
+          .style("font-size", "15px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        // -------------------------------
+        // Gender Distribution / Successful summits
+        // -------------------------------
+        bigPopup
+          .append("text")
+          .attr("class", "big-gender-title")
+          .attr("x", 930)
+          .attr("y", 551)
+          .attr("text-anchor", "middle")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)")
+          .text("Gender Distribution");
+
+        // Successful summits
+        bigPopup
+          .append("text")
+          .attr("class", "big-gender-successful")
+          .attr("x", 930)
+          .attr("y", BAR_Y + 32)
+          .attr("text-anchor", "middle")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .attr("fill", "rgba(0,0,0,0.65)");
+
+        // -------------------------------
+        // Hover tooltips
+        // -------------------------------
+
+        // tooltip for death ratio center circle
+        const deathRateTip = bigPopup
+          .append("text")
+          .attr("class", "death-rate-tip")
+          .style("opacity", 0)
+          .attr("text-anchor", "middle")
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .attr("fill", "#FEFEFE");
+
+        // tooltip for stacked bar
+        const barPercentTip = bigPopup
+          .append("text")
+          .attr("class", "bar-percent-tip")
+          .style("opacity", 0)
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .style("fill", "rgba(0,0,0,0.65)");
+
+        // tooltip for gender pie
+        const genderPercentTip = bigPopup
+          .append("text")
+          .attr("class", "gender-percent-tip")
+          .style("opacity", 0)
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .style("fill", "rgba(0,0,0,0.65)");
+
+        // tooltip for oxygen pie
+        const oxygenPercentTip = bigPopup
+          .append("text")
+          .attr("class", "oxygen-percent-tip")
+          .style("opacity", 0)
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .style("fill", "rgba(0,0,0,0.65)");
+
+        // -------------------------------
+        // BAR % LABELS
+        // -------------------------------
+
+        const barPercentAlwaysUn = bigPopup
+          .append("text")
+          .attr("class", "bar-percent-always-un")
+          .attr("text-anchor", "middle")
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .style("fill", "FEFEFE");
+
+        const barPercentAlwaysSu = bigPopup
+          .append("text")
+          .attr("class", "bar-percent-always-su")
+          .attr("text-anchor", "middle")
+          .style("font-size", "13px")
+          .style("font-weight", 600)
+          .style("fill", "FEFEFE");
+
+        // -------------------------------
+        // Close X
+        // -------------------------------
+
+        bigPopup
+          .append("text")
+          .attr("class", "popup-close")
+          .attr("x", BIG_W - 38)
+          .attr("y", 42)
+          .attr("text-anchor", "middle")
+          .style("font-size", "30px")
+          .style("cursor", "pointer")
+          .text("✕")
+          .attr("fill", "rgba(0,0,0,0.65)")
+          .on("click", closeBigPopup);
+
+        // -------------------------------
+        // ‼️‼️‼️ OPEN BIG POPUP ‼️‼️‼️
+        // -------------------------------
+
+        // Follow the current mountain order, wrapping in either direction.
+        function browseMountain(step) {
+          if (!bigPopupOpen) return;
+          const index = mountains.findIndex((mountain) => mountain.peak_id === activePeakId);
+          openBigPopup(mountains[(index + step + mountains.length) % mountains.length]);
+        }
+
+        const popupNav = bigPopup.selectAll(".popup-nav")
+          .data([-1, 1])
+          .join("g")
+          .attr("class", "popup-nav")
+          .attr("transform", (step) => `translate(${step < 0 ? 0 : BIG_W}, ${BIG_H / 2})`)
+          .attr("role", "button")
+          .attr("tabindex", -1)
+          .on("click", (event, step) => {
+            event.stopPropagation();
+            browseMountain(step);
+          })
+          .on("keydown", (event, step) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              browseMountain(step);
+            }
+          });
+
+        popupNav.append("circle").attr("r", 19);
+        popupNav.append("path")
+          .attr("d", (step) => step < 0 ? "M3.5,-6 L-3.5,0 L3.5,6" : "M-3.5,-6 L3.5,0 L-3.5,6");
+        popupNav.append("title");
+
+        function openBigPopup(d) {
+          activePeakId = d.peak_id;
+          // Continue interrupted transitions from their currently displayed state.
+          bigPopup.selectAll("*").interrupt();
+          [deathRateTip, barPercentTip, genderPercentTip, oxygenPercentTip]
+            .forEach((tip) => tip.style("opacity", 0));
+          bigPopup.selectAll(".bar-unsuccessful, .bar-successful, .death-bg, .death-fg, .gender-donut path, .oxygen-donut path")
+            .attr("stroke", "none");
+          const activeIndex = mountains.findIndex((mountain) => mountain.peak_id === activePeakId);
+          popupNav.attr("tabindex", 0)
+            .attr("aria-label", (step) => `${step < 0 ? "Previous" : "Next"} mountain: ${mountains[(activeIndex + step + mountains.length) % mountains.length].name}`)
+            .style("color", regionColors[d.region]);
+          popupNav.select("title").text(function () { return this.parentNode.getAttribute("aria-label"); });
+
+          bigPopupOpen = true;
+          const popupRegionColor = regionColors[d.region];
+          const popupRegionDark = regionColors[d.region];
+          const popupRegionLight = regionTextColors[d.region];
+          const deaths = +d.deaths || 0;
+          const successfulForRatio = +d.successful_summits || 0;
+          const deathsPerSummit = +d.deaths_per_summit || 0;
+
+          // title
+          bigPopup
+            .select(".big-title")
+            .text(`${d.name} (${d.height}m)`)
+            .attr("fill", regionColors[d.region]);
+
+          // color death background by region
+          bigPopup.select(".death-bg").transition().duration(800).attr("fill", regionColors[d.region]);
+
+          // Hover hint text
+          bigPopup
+            .select(".big-hover-hint")
+            .attr("fill", "rgba(0,0,0,0.65)")
+            .text("") // reset
+            .selectAll("tspan")
+            .remove();
+
+          bigPopup
+            .select(".big-hover-hint")
+            .attr("transform", "rotate(+90, 28, 210)"); //rotate 90 degree
+
+          bigPopup
+            .select(".big-hover-hint")
+            .append("tspan")
+            .attr("x", -120)
+            .attr("dy", -827)
+            .text("Hover the charts to");
+
+          bigPopup
+            .select(".big-hover-hint")
+            .append("tspan")
+            .attr("x", -120)
+            .attr("dy", 16)
+            .text("discover more insights!");
+
+          bigPopup
+            .select(".big-first-ascent-1")
+            .text(d.first_ascent_text1 || "");
+
+          bigPopup
+            .select(".big-first-ascent-2")
+            .text(d.first_ascent_text2 || "");
+
+          bigPopup
+            .select(".big-header-image")
+            .attr("href", d.img)
+            .attr("xlink:href", d.img);
+
+          // numbers
+          const unsuccessful = +d.unsuccessful_attempts || 0;
+          const successful = +d.successful_summits || 0;
+          const total = unsuccessful + successful;
+
+          barScale.domain([0, total]);
+
+          const hUn = barScale(unsuccessful);
+          const hSu = barScale(successful);
+
+          // -----------------------
+          // UNSUCCESSFUL (bottom)
+          // -----------------------
+
+          bigPopup
+            .select(".bar-unsuccessful")
+            .transition()
+            .duration(800)
+            .attr("y", -hUn)
+            .attr("height", hUn)
+            .attr("rx", 10)
+            .attr("ry", 10)
+            .attr("fill", "#B0BEC5")
+            .attr(
+              "style",
+              "border-top-left-radius:0px;border-top-right-radius:0px",
+            );
+
+          // -----------------------
+          // SUCCESSFUL (top)
+          // -----------------------
+
+          bigPopup
+            .select(".bar-successful")
+            .transition()
+            .duration(800)
+            .attr("y", -(hUn + hSu))
+            .attr("height", hSu)
+            .attr("rx", 10)
+            .attr("ry", 10)
+            .attr("fill", regionColors[d.region]);
+
+          // -----------------------
+          // UPDATE GENDER DONUT
+          // -----------------------
+
+          let male = +d.male_successful_summits || 0;
+          let female = +d.female_successful_summits || 0;
+
+          if (male === 0 && female === 0) {
+            male = 1;
+            female = 1;
+          }
+
+          const genderData = genderPie([
+            { key: "male", value: male },
+            { key: "female", value: female },
+          ]);
+
+          const totalGender = male + female;
+
+          const malePct =
+            totalGender === 0 ? 0 : Math.round((male / totalGender) * 100);
+          const femalePct =
+            totalGender === 0 ? 0 : Math.round((female / totalGender) * 100);
+
+          animateNumber(
+            ".male-percent-label",
+            malePct, 
+            (v) => `M ${v}%`,
+          );
+
+          animateNumber(
+            ".female-percent-label",
+            femalePct, 
+            (v) => `F: ${v}%`,
+          );
+
+          // -----------------------
+          // UPDATE OXYGEN DONUT
+          // -----------------------
+
+          let withOx = +d.success_with_oxygen || 0;
+          let withoutOx = +d.success_without_oxygen || 0;
+
+          if (withOx === 0 && withoutOx === 0) {
+            withOx = 1;
+            withoutOx = 1;
+          }
+
+          const oxygenData = oxygenPie([
+            { key: "with", value: withOx },
+            { key: "without", value: withoutOx },
+          ]);
+
+          const totalOxy = withOx + withoutOx;
+
+          const withPct =
+            totalOxy === 0 ? 0 : Math.round((withOx / totalOxy) * 100);
+          const withoutPct =
+            totalOxy === 0 ? 0 : Math.round((withoutOx / totalOxy) * 100);
+
+          animateNumber(".oxygen-with-label", withPct, (v) => `${v}%`);
+
+          animateNumber(".oxygen-without-label", withoutPct, (v) => `${v}%`);
+
+          // -----------------------
+          // UPDATE DEATH RATIO CIRCLES
+          // -----------------------
+
+          let ratio = 0;
+
+          if (successfulForRatio > 0) {
+            ratio = deaths / successfulForRatio;
+          }
+
+          // clamp ratio between 0 and 1
+          ratio = Math.max(0, Math.min(1, ratio));
+
+          // convert ratio → radius
+          const deathRadius = Math.sqrt(ratio) * DEATH_MAX_R;
+
+          bigPopup
+            .select(".death-fg")
+
+            // -------------------
+            // HOVER
+            // -------------------
+            .on("mouseenter", function () {
+              // outline
+              d3.select(this).attr("stroke", "#FEFEFE").attr("stroke-width", 1);
+
+              // show tooltip
+              deathRateTip
+                .attr("x", DEATH_CX)
+                .attr("y", DEATH_CY - DEATH_BASE_R + 30) // top of big circle
+                .text("")
+                .selectAll("tspan")
+                .remove();
+
+              // line 1 → percent
+              deathRateTip
+                .append("tspan")
+                .attr("x", DEATH_CX)
+                .attr("dy", 0)
+                .text(`${d.death_rate_per_summit}%`);
+
+              // line 2 → label
+              deathRateTip
+                .append("tspan")
+                .attr("x", DEATH_CX)
+                .attr("dy", 16)
+                .text("Death per Summit");
+
+              deathRateTip.style("opacity", 1);
+            })
+
+            .on("mouseleave", function () {
+              d3.select(this).attr("stroke", "none");
+
+              deathRateTip.style("opacity", 0);
+            })
+
+            // -------------------
+            // ANIMATION
+            // -------------------
+            .transition()
+            .duration(800)
+            .attr("r", deathRadius);
+
+          const oxySlices = oxygenG
+            .selectAll("path")
+            .data(oxygenData, (d) => d.data.key);
+
+          // ENTER
+          oxySlices
+            .enter()
+            .append("path")
+            .attr("fill", (d) =>
+              d.data.key === "without" ? popupRegionColor : "#B0BEC5",
+            )
+            .each(function (d) {
+              this._current = d;
+            })
+            .attr("d", oxygenArc)
+            .merge(oxySlices)
+
+            // -------------------
+            // HOVER (OXYGEN)
+            // -------------------
+            .on("mouseenter", function (event, d) {
+              d3.select(this).raise();
+
+              oxygenPercentTip
+                .text("")
+                .attr("x", OXY_CX)
+                .attr("y", OXY_CY - 12)
+                .attr("text-anchor", "middle")
+                .selectAll("tspan")
+                .remove();
+
+              // Line 1 → With / Without
+              oxygenPercentTip
+                .append("tspan")
+                .attr("x", OXY_CX)
+                .attr("dy", 0)
+                .text(d.data.key === "with" ? "With" : "Without");
+
+              // Line 2 → Oxygen
+              oxygenPercentTip
+                .append("tspan")
+                .attr("x", OXY_CX)
+                .attr("dy", 16)
+                .text("Oxygen");
+
+              // Line 3 → number
+              oxygenPercentTip
+                .append("tspan")
+                .attr("x", OXY_CX)
+                .attr("dy", 16)
+                .text(d.data.value);
+
+              oxygenPercentTip.style("opacity", 1);
+
+              d3.select(this)
+                .attr("stroke", "rgba(0,0,0,0.65)")
+                .attr("stroke-width", 1.5);
+            })
+
+            .on("mouseleave", function () {
+              oxygenPercentTip.style("opacity", 0);
+
+              d3.select(this).attr("stroke", "none");
+            })
+
+            // -------------------
+            // ANIMATION
+            // -------------------
+            .transition()
+            .duration(800)
+            .attr("fill", (d) => d.data.key === "without" ? popupRegionColor : popupRegionLight)
+            .attrTween("d", function (d) {
+              const i = d3.interpolate(this._current, d);
+              return (t) => {
+                this._current = i(t);
+                return oxygenArc(this._current);
+              };
+            });
+
+          // bind data
+          const slices = genderG
+            .selectAll("path")
+            .data(genderData, (d) => d.data.key);
+
+          // ENTER
+          slices
+            .enter()
+            .append("path")
+            .attr("fill", (d) =>
+              d.data.key === "male" ? popupRegionDark : popupRegionLight,
+            )
+            .each(function (d) {
+              this._current = d;
+            }) // store start state
+            .attr("d", genderArc)
+            .merge(slices) // ENTER + UPDATE
+
+            // -------------------
+            // HOVER
+            // -------------------
+            .on("mouseenter", function (event, d) {
+              // bring slice on top
+              d3.select(this).raise();
+
+              genderPercentTip
+                .text("")
+                .attr("x", GENDER_CX)
+                .attr("y", GENDER_CY - 12)
+                .attr("text-anchor", "middle")
+                .selectAll("tspan")
+                .remove();
+
+              // Line 1 → Male / Female
+              genderPercentTip
+                .append("tspan")
+                .attr("x", GENDER_CX)
+                .attr("dy", 0)
+                .text(d.data.key === "male" ? "Male" : "Female");
+
+              // Line 2 → "Summits"
+              genderPercentTip
+                .append("tspan")
+                .attr("x", GENDER_CX)
+                .attr("dy", 16)
+                .text("Summits");
+
+              // Line 3 → number
+              genderPercentTip
+                .append("tspan")
+                .attr("x", GENDER_CX)
+                .attr("dy", 16)
+                .text(d.data.value);
+
+              genderPercentTip.style("opacity", 1);
+
+              d3.select(this)
+                .attr("stroke", "rgba(0,0,0,0.65)")
+                .attr("stroke-width", 1.5);
+            })
+            .on("mouseleave", function () {
+              genderPercentTip.style("opacity", 0);
+
+              d3.select(this).attr("stroke", "none");
+            })
+
+            // -------------------
+            // ANIMATION
+            // -------------------
+            .transition()
+            .duration(800)
+            .attr("fill", (d) => d.data.key === "male" ? popupRegionDark : popupRegionLight)
+            .attrTween("d", function (d) {
+              const i = d3.interpolate(this._current, d);
+              return (t) => {
+                this._current = i(t);
+                return genderArc(this._current);
+              };
+            });
+
+          // -----------------------
+          // COUNT-UP TEXT
+          // -----------------------
+
+          animateNumber(
+            ".label-unsuccessful",
+            unsuccessful,
+            (v) => `Unsuccessful ${v}`,
+          );
+
+          animateNumber(
+            ".label-successful",
+            successful,
+            (v) => `Successful ${v}`,
+          );
+
+          animateNumber(
+            ".big-total-attempts",
+            total,
+            (v) => `Summit\nattempts: ${v}`,
+          );
+
+          function ensureCountLabel(selector, numberClass, caption) {
+            const label = bigPopup.select(selector);
+            if (label.select(`.${numberClass}`).empty()) {
+              label.text("");
+              label.append("tspan").attr("class", numberClass)
+                .attr("x", DEATH_CX).attr("dy", 0).text("0");
+              label.append("tspan").attr("x", DEATH_CX).attr("dy", 16).text(caption);
+            }
+          }
+          ensureCountLabel(".death-successful-label", "success-number", "Summits");
+          ensureCountLabel(".death-ratio-label", "death-number", "Deaths");
+          animateNumber(".death-number", deaths, (v) => v);
+          animateNumber(".success-number", successful, (v) => v);
+
+          animateNumber(
+            ".big-deaths-per-summit",
+            deathsPerSummit,
+            (v) => `1 death per ${v} summits`,
+          );
+
+          animateNumber(
+            ".big-successful-right",
+            successful,
+            (v) => `Successful\nsummits: ${v}`,
+          );
+
+          animateNumber(
+            ".big-gender-successful",
+            +d.successful_summits || 0,
+            (v) => `Successful summits: ${v}`,
+          );
+
+          // center labels vertically
+          bigPopup.select(".label-unsuccessful").transition("position").duration(800).attr("y", -hUn / 2);
+
+          bigPopup.select(".label-successful").transition("position").duration(800).attr("y", -(hUn + hSu / 2));
+
+          // -----------------------
+          // HOVER %
+          // -----------------------
+
+          bigPopup
+            .select(".bar-unsuccessful")
+            .on("mouseenter", () => {
+              barPercentTip
+                .attr("x", BAR_X + BAR_W + 12)
+                .attr("y", BAR_Y - hUn / 2)
+                .text(`${Math.round((unsuccessful / total) * 100)}%`)
+                .style("opacity", 1);
+
+              d3.select(".bar-unsuccessful")
+                .attr("stroke", "rgba(0,0,0,0.65)")
+                .attr("stroke-width", 1.5);
+            })
+            .on("mouseleave", () => {
+              barPercentTip.style("opacity", 0);
+              d3.select(".bar-unsuccessful").attr("stroke", "none");
+            });
+
+          bigPopup
+            .select(".bar-successful")
+            .on("mouseenter", () => {
+              barPercentTip
+                .attr("x", BAR_X + BAR_W + 12)
+                .attr("y", BAR_Y - (hUn + hSu / 2))
+                .text(`${Math.round((successful / total) * 100)}%`)
+                .style("opacity", 1);
+
+              d3.select(".bar-successful")
+                .attr("stroke", "rgba(0,0,0,0.65)")
+                .attr("stroke-width", 1.5);
+            })
+            .on("mouseleave", () => {
+              barPercentTip.style("opacity", 0);
+              d3.select(".bar-successful").attr("stroke", "none");
+            });
+
+          bigPopup.attr("opacity", 1).style("pointer-events", "all");
+
+          d3.select(".compare-button")
+            .style("pointer-events", "none")
+            .style("opacity", 0);
+        }
+
+        // -------------------------------
+        // NUMBER ANIMATION
+        // -------------------------------
+
+        function animateNumber(selector, end, formatter) {
+          bigPopup
+            .select(selector)
+            .transition()
+            .duration(900)
+            .tween("text", function () {
+              const text = d3.select(this);
+              const i = d3.interpolateNumber(this._displayedValue || 0, end);
+
+              return (t) => {
+                this._displayedValue = i(t);
+                const value = formatter(Math.round(this._displayedValue));
+
+                const firstTspan = text.select("tspan");
+                if (!firstTspan.empty()) {
+                  firstTspan.text(value); // update only first line
+                } else {
+                  this.textContent = value;
+                }
+              };
+            });
+        }
+
+        // -------------------------------
+        // CLOSE
+        // -------------------------------
+
+        function closeBigPopup() {
+          bigPopupOpen = false;
+          popupNav.attr("tabindex", -1);
+
+          bigPopup.attr("opacity", 0).style("pointer-events", "none");
+
+          d3.select(".compare-button")
+            .style("pointer-events", "all")
+            .style("opacity", 1);
+        }
+
+        // ===============================
+        // ‼️‼️‼️ BIG POPUP END ‼️‼️‼️
+        // ===============================
+
+        // 🏔️ Title + Subtitle (SVG) START 🏔️
+        const header = g
+          .append("g")
+          .attr("class", "svg-header")
+          .attr("transform", `translate(20, 40)`);
+
+        header
+          .append("text")
+          .attr("x", -60)
+          .attr("y", -45)
+          .attr("fill", "#2E5EAA")
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-size", "36px")
+          .style("font-weight", 700)
+          .style("font-variation-settings", "'wght' 700")
+          .text("Nepal’s 8000m Peaks Visualized");
+
+        header
+          .append("text")
+          .attr("x", -60)
+          .attr("y", -15)
+          .attr("fill", "rgba(0, 0, 0, 0.65)")
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-weight", 500)
+          .style("font-size", "18px")
+          .text(
+            "Explore Nepal’s 8 eight-thousanders and their expedition history",
+          );
+
+        header
+          .append("text")
+          .attr("x", -60)
+          .attr("y", 8)
+          .attr("fill", "rgba(0, 0, 0, 0.65)")
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-weight", 500)
+          .style("font-size", "18px")
+          .text("through the Himalayan Database data. (himalayandatabase.com)");
+
+        // 🧭 Legend (SVG) 🧭
+        const legend = g
+          .append("g")
+          .attr("class", "svg-legend")
+          .attr(
+            "transform",
+            `translate(${width - layoutPadding * 2 - 108}, -40)`,
+          );
+
+        // background box
+        legend
+          .append("rect")
+          .attr("width", 145)
+          .attr("height", 140)
+          .attr("rx", 14)
+          .attr("ry", 14)
+          .attr("fill", "rgba(255,255,255,0.65)")
+          .attr("stroke", "rgba(0,0,0,0.08)")
+          .attr("stroke-width");
+
+        // title
+        legend
+          .append("text")
+          .attr("x", 14)
+          .attr("y", 24)
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-size", "14px")
+          .style("font-weight", 700)
+          .attr("fill", "rgba(0, 0, 0, 0.65)")
+          .text("Region");
+
+        // items
+        const legendItems = [
+          { label: "Nepal", color: "#B11226" },
+          { label: "Nepal / China", color: "#2E5EAA" },
+          { label: "Nepal / India", color: "#B8860B" },
+        ];
+
+        const itemG = legend
+          .selectAll("g.legend-item")
+          .data(legendItems)
+          .enter()
+          .append("g")
+          .attr("class", "legend-item")
+          .attr("transform", (d, i) => `translate(14, ${44 + i * 30})`);
+
+        // dots
+        itemG
+          .append("circle")
+          .attr("cx", 6)
+          .attr("cy", 6)
+          .attr("r", 6)
+          .attr("fill", (d) => d.color);
+
+        // text
+        itemG
+          .append("text")
+          .attr("x", 22)
+          .attr("y", 11)
+          .style("font-family", "Space Grotesk, sans-serif")
+          .style("font-size", "14px")
+          .style("font-weight", 500)
+          .attr("fill", "rgba(0, 0, 0, 0.65)")
+          .text((d) => d.label);
+        // 🧭 Legend (SVG) 🧭
+
+        // 🏔️ Parent group for each mountain (triangle + labels + popup) 🏔️
+        const mountainG = g
+          .append("g")
+          .attr("class", "mountain-layer")
+          .attr(
+            "transform",
+            `translate(${mountainPadding}, ${mountainPadding})`,
+          );
+
+        const peakGroups = mountainG
+          .selectAll("g.peak")
+          .data(mountains)
+          .join("g")
+          .attr("class", "peak")
+          .attr("transform", positionPeak) //For Filtering
+          .on("mouseenter", function () { // 🖱️ Hover in (Grow Bigger)
+            d3.select(this)
+              .transition()
+              .duration(180)
+              .attr("transform", (d) => {
+                const col = mountains.indexOf(d) % cols;
+                const row = Math.floor(mountains.indexOf(d) / cols);
+                const yOffset = row === 0 ? topRowYOffset : bottomRowYOffset;
+                const xOffset = row === 0 ? topRowXOffset : bottomRowXOffset;
+                return `translate(${col * cellW + cellW / 2 + xOffset}, ${row * cellH + yOffset}) scale(1.05)`;
+              });
+          })
+          .on("mouseleave", function () { // 🖱️ Hover out (Back to normal)
+            d3.select(this)
+              .transition()
+              .duration(180)
+              .attr("transform", (d) => {
+                const col = mountains.indexOf(d) % cols;
+                const row = Math.floor(mountains.indexOf(d) / cols);
+                const yOffset = row === 0 ? topRowYOffset : bottomRowYOffset;
+                const xOffset = row === 0 ? topRowXOffset : bottomRowXOffset;
+                return `translate(${col * cellW + cellW / 2 + xOffset}, ${row * cellH + yOffset}) scale(1)`;
+              });
+          });
+
+        // 🏔️ Append triangle to parent group 🏔️
+        peakGroups
+          .append("path")
+          .attr("d", (d) => {
+            const s = d.height / maxHeight;
+            const baseW = baseWMax * s;
+            const triH = triHMax * s;
+            return `M ${-baseW / 2} 0 L ${baseW / 2} 0 L 0 ${-triH} Z`;
+          })
+          .attr("fill", (d) => `url(#mountainGradient-${d.peak_id})`)
+          .attr("stroke", BackgroundColor)
+          .attr("stroke-width", 2);
+
+        // -------------------------------------------------------------------
+        // pop ups section start
+        // -------------------------------------------------------------------
+
+        const popupW = 300;
+        const popupH = 200;
+        const popupX = -popupW / 2;
+        const popupY = -450;
+        const popupPad = 12; // image and text padding from popup edges
+
+        // image area (right side)
+        const imgW = 130;
+        const imgH = popupH - popupPad * 2;
+
+        const imgX = popupX + popupW - popupPad - imgW; // right aligned with padding
+        const imgY = popupY + popupPad;
+
+        // --- BUTTON (bottom-left) ---
+        const btnText = "Expeditions Data";
+        const btnH = 28;
+        const btnPadX = 12;
+        const btnRx = 10;
+
+        // button position
+        const btnX = popupX + popupPad;
+        const btnY = popupY + popupH - popupPad - btnH;
+
+        // 🏔️ Popup container (initially hidden) 🏔️
+        const popups = peakGroups
+          .append("g")
+          .attr("class", "popup")
+          .attr("opacity", 0)
+          .style("pointer-events", "none")
+          .on("mouseenter", (event) => event.stopPropagation())
+          .on("mouseleave", (event) => event.stopPropagation())
+
+          .each(function (d) {
+            const popup = d3.select(this);
+
+            // Background rectangle
+            popup
+              .append("rect")
+              .attr("width", popupW)
+              .attr("height", popupH)
+              .attr("x", popupX)
+              .attr("y", popupY)
+              .attr("rx", 12)
+              .attr("ry", 12)
+              .attr("fill", "rgba(255,255,255,0.95)")
+              .attr("stroke", "rgba(0,0,0,0.08)")
+              .attr("stroke-width", 1);
+
+            // Mountain name (top-left)
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 18)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 800)
+              .style("font-size", "18px")
+              .text(d.name);
+
+            // Mountain height
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 40)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 600)
+              .style("font-size", "14px")
+              .style("opacity", 0.85)
+              .text(`${d.height}m`);
+
+            // First Ascend Year
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 60)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 600)
+              .style("font-size", "14px")
+              .style("opacity", 0.85)
+              .text(`First Ascend: ${+d.first_ascent_year}`);
+
+            // Mountain Number of Expeditions
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 80)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 600)
+              .style("font-size", "14px")
+              .style("opacity", 0.85)
+              .text(`${d.number_of_expeditions} Expeditions`);
+
+            // Mountain Death Ratio % Number
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 120)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 600)
+              .style("font-size", "14px")
+              .style("opacity", 0.85)
+              .text(`${d.death_rate_per_summit}%`);
+
+            // Mountain Death Ratio Text
+            popup
+              .append("text")
+              .attr("x", popupX + popupPad)
+              .attr("y", popupY + popupPad + 138)
+              .attr("fill", (d) => regionColors[d.region])
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 600)
+              .style("font-size", "14px")
+              .style("opacity", 0.85)
+              .text(`Death per Summit`);
+
+            // Mountain Death Ratio % Pie Chart
+            const donutOuter = 12;
+            const donutInner = 5;
+
+            // Container
+            const donutG = popup
+              .append("g")
+              .attr(
+                "transform",
+                `translate(${popupX + popupPad + 111}, ${popupY + popupPad + 109})`,
+              );
+
+            // Background ring (100%)
+            donutG
+              .append("path")
+              .attr(
+                "d",
+                d3
+                  .arc()
+                  .innerRadius(donutInner)
+                  .outerRadius(donutOuter)
+                  .startAngle(0)
+                  .endAngle(Math.PI * 2),
+              )
+              .attr("fill", "#FEFEFE")
+              .attr("stroke", "rgba(0,0,0,0.08)");
+
+            // Foreground arc (percentage)
+            donutG
+              .append("path")
+              .attr(
+                "d",
+                d3
+                  .arc()
+                  .innerRadius(donutInner)
+                  .outerRadius(donutOuter)
+                  .startAngle(0)
+                  .endAngle(2 * Math.PI * (d.death_rate_per_summit / 100)),
+              )
+              .attr("fill", (d) => regionColors[d.region]);
+
+            // --- IMAGE (right side) ---
+
+            // unique clipPath for this mountain
+            defs
+              .append("clipPath")
+              .attr("id", `popupClip-${d.peak_id}`)
+              .append("rect")
+              .attr("x", imgX)
+              .attr("y", imgY)
+              .attr("width", imgW)
+              .attr("height", imgH)
+              .attr("rx", 12)
+              .attr("ry", 12);
+
+            popup
+              .append("image")
+              .attr("x", imgX)
+              .attr("y", imgY)
+              .attr("width", imgW)
+              .attr("height", imgH)
+              .attr("href", d.img)
+              .attr("preserveAspectRatio", "xMidYMid slice")
+              .attr("clip-path", `url(#popupClip-${d.peak_id})`);
+
+            // -------------------------------------------------------------------
+            // EXPEDITIONS DATA BUTTON (bottom-left)
+            // -------------------------------------------------------------------
+
+            // create button group
+            const btn = popup
+              .append("g")
+              .attr("class", "expeditions-btn")
+              .style("cursor", "pointer")
+              .style("pointer-events", "inherit");
+            btn.on("click", function (event, d) {
+              event.stopPropagation();
+              openBigPopup(d);
+            });
+
+            const btnLabel = btn
+              .append("text")
+              .attr("x", btnX + btnPadX)
+              .attr("y", btnY + btnH / 2 + 5)
+              .attr("fill", "#FEFEFE")
+              .style("font-family", "Space Grotesk, sans-serif")
+              .style("font-weight", 700)
+              .style("font-size", "12px")
+              .text(btnText);
+
+            const textW = btnLabel.node().getBBox().width;
+            const btnW = textW + btnPadX * 2;
+
+            // background rect behind the text
+            const btnRect = btn
+              .insert("rect", "text")
+              .attr("x", btnX)
+              .attr("y", btnY)
+              .attr("width", btnW)
+              .attr("height", btnH)
+              .attr("rx", btnRx)
+              .attr("ry", btnRx)
+              .attr("fill", regionColors[d.region]);
+
+            // hover interaction (grow + color shift)
+            btn
+              .on("mouseenter", function () {
+                btn
+                  .transition()
+                  .duration(120)
+                  .attr(
+                    "transform",
+                    `translate(${btnX + btnW / 2}, ${btnY + btnH / 2}) scale(1.05) translate(${-(btnX + btnW / 2)}, ${-(btnY + btnH / 2)})`,
+                  );
+
+                btnRect
+                  .transition()
+                  .duration(120)
+                  .attr("fill", regionTextColors[d.region]);
+              })
+              .on("mouseleave", function () {
+                btn
+                  .transition()
+                  .duration(120)
+                  .attr("transform", `translate(0,0) scale(1)`);
+
+                btnRect
+                  .transition()
+                  .duration(120)
+                  .attr("fill", regionColors[d.region]);
+              });
+          });
+
+        // 🖱️ Hover on peak group
+        peakGroups
+          .on("mouseenter", function (event, d) {
+            d3.select(this)
+              .transition()
+              .duration(180)
+              .attr("transform", function (d) {
+                const i = mountains.indexOf(d);
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const yOffset = row === 0 ? topRowYOffset : bottomRowYOffset;
+                const xOffset = row === 0 ? topRowXOffset : bottomRowXOffset;
+                return `translate(${col * cellW + cellW / 2 + xOffset}, ${row * cellH + yOffset}) scale(1.05)`;
+              });
+
+            d3.select(this)
+              .select(".mountain-label")
+              .transition()
+              .duration(100)
+              .style("opacity", 0);
+
+            d3.select(this)
+              .select(".popup")
+              .transition()
+              .duration(180)
+              .attr("opacity", 1)
+              .style("pointer-events", "all");
+          })
+          .on("mouseleave", function (event, d) {
+            const group = d3.select(this);
+
+            group
+              .transition()
+              .duration(180)
+              .attr("transform", function (d) {
+                const i = mountains.indexOf(d);
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const yOffset = row === 0 ? topRowYOffset : bottomRowYOffset;
+                const xOffset = row === 0 ? topRowXOffset : bottomRowXOffset;
+                return `translate(${col * cellW + cellW / 2 + xOffset}, ${row * cellH + yOffset}) scale(1)`;
+              });
+
+            group
+              .select(".popup")
+              .transition()
+              .duration(180)
+              .attr("opacity", 0)
+              .style("pointer-events", "none");
+
+            group
+              .select(".mountain-label")
+              .transition()
+              .duration(100)
+              .style("opacity", 1);
+          });
+
+        // -------------------------------------------------------------------
+        // pop ups section end
+        // -------------------------------------------------------------------
+
+        // -----------------------------
+        // UPDATE VALUE UNDER MOUNTAIN NAME ON COMPARE 
+        // ----------------------------- 
+        function updatePeakValueLabel(type) {
+          peakGroups.select(".height").text((d) => {
+            if (type === "height") {
+              return `${+d.height}m`;
+            }
+
+            if (type === "expeditions") {
+              return +d.number_of_expeditions;
+            }
+
+            if (type === "death") {
+              return `${d.death_rate_per_summit}%`;
+            }
+
+            if (type === "first") {
+              return +d.first_ascent_year;
+            }
+
+            // fallback
+            return `${+d.height}m`;
+          });
+        }
+
+        //Filtering Function
+        function sortMountains(by) {
+          if (by === "height") {
+            mountains.sort((a, b) => b.height - a.height);
+            updatePeakValueLabel("height");
+          }
+
+          // Filtering by Number of Expeditions
+          if (by === "expeditions") {
+            mountains.sort(
+              (a, b) => b.number_of_expeditions - a.number_of_expeditions,
+            );
+            updatePeakValueLabel("expeditions");
+          }
+
+          // Filtering by Death Ratio
+          if (by === "death") {
+            mountains.sort(
+              (a, b) => b.death_rate_per_summit - a.death_rate_per_summit,
+            );
+            updatePeakValueLabel("death");
+          }
+
+          // Filtering by first ascent year
+          if (by === "first") {
+            updatePeakValueLabel("first");
+            mountains.sort((a, b) => {
+              // 1) Sort by year
+              if (a.first_ascent_year !== b.first_ascent_year) {
+                return a.first_ascent_year - b.first_ascent_year;
+              }
+
+              // 2) Same year → use manual tie-break order
+              const rankA = firstAscentTieBreak[a.name] || 999;
+              const rankB = firstAscentTieBreak[b.name] || 999;
+
+              return rankA - rankB;
+            });
+          }
+
+          // Update rank numbers
+          function updateRanks() {
+            peakGroups
+              .select(".rank")
+              .text((d) => `#${mountains.indexOf(d) + 1}`);
+          }
+
+          // MOVE mountains
+          peakGroups
+            .data(mountains, (d) => d.peak_id)
+            .transition()
+            .duration(800)
+            .attr("transform", positionPeak);
+          updateRanks();
+
+          // FIX LAYERING
+          peakGroups.sort(
+            (a, b) => mountains.indexOf(a) - mountains.indexOf(b),
+          );
+        }
+
+        // 🏔️ Mountain Name + Height Label (Centered above each peak) 🏔️
+        const labels = peakGroups
+          .append("g")
+          .attr("class", "mountain-label")
+          .attr("transform", (d) => {
+            const s = d.height / maxHeight;
+            const triH = triHMax * s;
+            return `translate(0, ${-triH + 130})`; //Tweak Mountain labels Position
+          });
+
+        labels
+          .append("text") // Name Label
+          .attr("class", "name")
+          .attr("fill", (d) => regionTextColors[d.region])
+          .text((d) => d.name);
+
+        labels //Height Label
+          .append("text")
+          .attr("class", "height")
+          .attr("y", 21)
+          .attr("fill", (d) => regionTextColors[d.region])
+          .text((d) => `${+d.height}m`);
+
+        labels //#n Rank Label (for compare mode)
+          .append("text")
+          .attr("class", "rank")
+          .attr("y", -21)
+          .attr("text-anchor", "middle")
+          .style("font-size", "14px")
+          .style("font-weight", 700)
+          .style("opacity", 0.85)
+          .attr("fill", (d) => regionTextColors[d.region]);
+
+        // 🏔️ Mountain Name + Height Label (Centered above each peak) 🏔️
+
+        // --------------------
+        // Compare Button
+        // --------------------
+
+        const BTN_W = 120;
+        const BTN_H = 36;
+        const PAD_LEFT = 20;
+        const PAD_BOTTOM = 15;
+        const EXPANDED_PAD = 12;
+        const RADIUS = 6;
+
+        let compareOpen = false;
+        let expandedWidth = BTN_W;
+
+        // Root group
+        const compareBtnGroup = svg
+          .append("g")
+          .attr("class", "compare-button")
+          .attr(
+            "transform",
+            `translate(${PAD_LEFT}, ${height - PAD_BOTTOM - BTN_H})`,
+          )
+          .style("cursor", "pointer");
+
+        // Background
+        const compareBtnRect = compareBtnGroup
+          .append("rect")
+          .attr("width", BTN_W)
+          .attr("height", BTN_H)
+          .attr("rx", 8)
+          .attr("ry", 8)
+          .attr("fill", "#FEFEFE")
+          .attr("stroke", "rgba(0,0,0,0.08)");
+
+        // Label
+        const compareBtnText = compareBtnGroup
+          .append("text")
+          .attr("x", BTN_W / 2)
+          .attr("y", BTN_H / 2 + 6)
+          .attr("text-anchor", "middle")
+          .attr("fill", "rgba(0, 0, 0, 0.65)")
+          .style("font-size", "14px")
+          .style("font-weight", 600)
+          .text("Compare");
+
+        // --------------------
+        // Hover
+        // --------------------
+
+        compareBtnGroup
+          .on("mouseenter", () => {
+            if (!compareOpen) compareBtnRect.attr("fill", "#d9d9d9");
+          })
+          .on("mouseleave", () => {
+            if (!compareOpen) compareBtnRect.attr("fill", "white");
+          });
+
+        // --------------------
+        // Collapse
+        // --------------------
+
+        function collapseCompare() {
+          updateLayout(false);
+          compareOpen = false;
+
+          peakGroups
+            .select(".rank")
+            .transition()
+            .duration(200)
+            .style("opacity", 0);
+
+          compareBtnRect
+            .interrupt()
+            .transition()
+            .duration(200)
+            .attr("width", BTN_W);
+
+          compareBtnText.attr("x", BTN_W / 2).text("Compare");
+          compareBtnGroup.selectAll(".compare-options").remove();
+          sortMountains("height");
+          updatePeakValueLabel("height");
+        }
+
+        // --------------------
+        // Expand
+        // --------------------
+
+        function expandCompare() {
+          updateLayout(true);
+          compareOpen = true;
+
+          // Show ranks
+          peakGroups
+            .select(".rank")
+            .transition()
+            .duration(200)
+            .style("opacity", 1);
+
+          compareBtnRect.attr("fill", "white");
+          compareBtnText.text("Close");
+
+          // 🔥 IMPORTANT: remove any old options first
+          compareBtnGroup.selectAll(".compare-options").remove();
+
+          // Build options UI
+          const options = [
+            "Height",
+            "Number of Expeditions",
+            "Death Ratio",
+            "First Ascend",
+          ];
+
+          const optionGroup = compareBtnGroup
+            .append("g")
+            .attr("class", "compare-options");
+
+          let currentX = BTN_W + EXPANDED_PAD;
+
+          options.forEach((label, i) => {
+            const g = optionGroup
+              .append("g")
+              .attr("transform", `translate(${currentX}, ${BTN_H / 2})`)
+              .style("cursor", "pointer")
+              .on("click", function (e) {
+                e.stopPropagation();
+
+                if (label === "Height") sortMountains("height");
+                if (label === "Number of Expeditions")
+                  sortMountains("expeditions");
+                if (label === "Death Ratio") sortMountains("death");
+                if (label === "First Ascend") sortMountains("first");
+
+                // clear all
+                optionGroup.selectAll("circle").attr("fill", "white");
+
+                // fill active
+                d3.select(this)
+                  .select("circle")
+                  .attr("fill", "rgba(0,0,0,0.7)");
+              });
+
+            g.append("circle")
+              .attr("cx", RADIUS)
+              .attr("r", RADIUS)
+              .attr("fill", i === 0 ? "rgba(0,0,0,0.7)" : "white")
+              .attr("stroke", "rgba(0,0,0,0.65)");
+
+            const text = g
+              .append("text")
+              .attr("x", RADIUS * 2 + 4)
+              .attr("y", 4)
+              .style("font-size", "12px")
+              .style("font-weight", 600)
+              .style("fill", "rgba(0,0,0,0.65)")
+              .text(label);
+
+            const w = text.node().getBBox().width;
+            currentX += RADIUS * 2 + 6 + w + EXPANDED_PAD;
+          });
+
+          expandedWidth = currentX + 6;
+
+          compareBtnRect
+            .interrupt()
+            .transition()
+            .duration(200)
+            .attr("width", expandedWidth);
+
+          // ✅ AFTER UI EXISTS → apply default sort
+          sortMountains("height");
+          updatePeakValueLabel("height");
+        }
+
+        // --------------------
+        // Toggle
+        // --------------------
+
+        compareBtnGroup.on("click", () => {
+          compareOpen ? collapseCompare() : expandCompare();
+        });
+      });
+      }
+
+      desktopViewport.addEventListener("change", initializeVisualization);
+      initializeVisualization();
+    </script>
+  </body>
+</html>
